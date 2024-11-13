@@ -1,28 +1,39 @@
-from fastapi import FastAPI, HTTPException, Path, Body, Depends
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Column, Integer, String, JSON, Enum
+from sqlalchemy.future import select
+from fastapi.middleware.cors import CORSMiddleware
 from enum import Enum as PyEnum
 from typing import Optional, List
 
 # Initialize FastAPI app
 app = FastAPI()
-
+origins = [
+    "http://localhost:3000",  # React app URL during development
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # Allows the specified origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"],  # Allows all headers (e.g., Authorization, Content-Type)
+)
 # Database setup
-DATABASE_URL = "postgresql+asyncpg://username:password@localhost/yourdatabase"
+DATABASE_URL = "postgresql+asyncpg://postgres:@localhost/service_request"
 engine = create_async_engine(DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
 # Status Enum
 class RequestStatus(str, PyEnum):
-    OPENED = "opened"
-    ASSIGNED = "assigned"
-    SERVED = "served"
-    COMPLETE = "complete"
-    INCOMPLETE = "incomplete"
+    OPENED = "Opened"
+    ASSIGNED = "Assigned"
+    SERVED = "Served"
+    COMPLETE = "Complete"
+    INCOMPLETE = "Incomplete"
 
 # Database model
 class ServiceRequest(Base):
@@ -117,21 +128,27 @@ async def delete_service_request(request_id: int, db: AsyncSession = Depends(get
 # Get All Service Requests
 @app.get("/api/service-requests", status_code=200)
 async def get_all_requests(db: AsyncSession = Depends(get_db)):
-    requests = await db.execute("SELECT * FROM service_requests")
-    results = requests.fetchall()
-    if not results:
-        raise HTTPException(status_code=404, detail="No requests found")
+    async with db.begin():  # Begin a transaction scope
+        result = await db.execute(select(ServiceRequest))  # ORM query to get all ServiceRequest records
+        requests = result.scalars().all()  # Fetch all records as list of ServiceRequest instances
 
-    return [
-        {
-            "request_id": req.id,
-            "status": req.status,
-            "drop_off_location": req.drop_off_location,
-            "shipment_metadata": req.shipment_metadata,
-            "truck_id": req.truck_id
-        } for req in results
-    ]
+        # If there are no requests, raise a 404 error
+        if not requests:
+            raise HTTPException(status_code=404, detail="No requests found")
 
+        # Convert ORM instances to JSON-serializable dictionaries
+        response_data = [
+            {
+                "id": request.id,
+                "status": request.status,
+                "drop_off_location": request.drop_off_location,
+                "shipment_metadata": request.shipment_metadata,
+                "truck_id": request.truck_id,
+            }
+            for request in requests
+        ]
+
+        return response_data
 # Run database initialization on startup
 @app.on_event("startup")
 async def startup():

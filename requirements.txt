@@ -1,5 +1,5 @@
 fastapi
-uvicron
+fastapi[standard]
 pydantic
 sqlalchemy
 asyncpg
