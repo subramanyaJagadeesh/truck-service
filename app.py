@@ -134,7 +134,7 @@ async def get_all_requests(db: AsyncSession = Depends(get_db)):
 
         # If there are no requests, raise a 404 error
         if not requests:
-            raise HTTPException(status_code=404, detail="No requests found")
+            return []
 
         # Convert ORM instances to JSON-serializable dictionaries
         response_data = [
