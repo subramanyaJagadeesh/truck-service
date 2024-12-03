@@ -4,3 +4,4 @@ pydantic
 sqlalchemy
 asyncpg
 psycopg2
+requests

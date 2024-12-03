@@ -3,7 +3,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Column, Integer, String, JSON, Enum
+from sqlalchemy import Column, Integer, String, JSON, Enum, DateTime
+from sqlalchemy.sql import func
 from sqlalchemy.future import select
 from fastapi.middleware.cors import CORSMiddleware
 from enum import Enum as PyEnum
@@ -45,7 +46,7 @@ class ServiceRequest(Base):
     service_type = Column(String, nullable=False)
     truck_id = Column(Integer, nullable=True)
     status = Column(Enum(RequestStatus), default=RequestStatus.OPENED)
-    created_time = Column()
+    created_time = Column(DateTime(timezone=True), server_default=func.now())
 
 class Schedule():
     schedule_id: int
