@@ -8,6 +8,7 @@ from sqlalchemy.future import select
 from fastapi.middleware.cors import CORSMiddleware
 from enum import Enum as PyEnum
 from typing import Optional, List
+import requests
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -22,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers (e.g., Authorization, Content-Type)
 )
 # Database setup
-DATABASE_URL = "postgresql+asyncpg://postgres:@localhost/service_request"
+DATABASE_URL = "postgresql+asyncpg://postgres:GL85#Y3%$X&c5*yf^Wgt@autonomous-truck-simulator.c3s0ceae4890.us-west-1.rds.amazonaws.com:5432/postgres"
 engine = create_async_engine(DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
@@ -41,9 +42,14 @@ class ServiceRequest(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     drop_off_location = Column(String, nullable=False)
-    shipment_metadata = Column(JSON, nullable=False)
+    service_type = Column(String, nullable=False)
     truck_id = Column(Integer, nullable=True)
     status = Column(Enum(RequestStatus), default=RequestStatus.OPENED)
+    created_time = Column()
+
+class Schedule():
+    schedule_id: int
+    stops: List[str]
 
 # Pydantic models
 class ShipmentMetadata(BaseModel):
@@ -95,9 +101,11 @@ async def assign_service_request(request_id: int, assign_data: ServiceRequestAss
     
     request.truck_id = assign_data.truck_id
     request.status = RequestStatus.ASSIGNED
+    res: Schedule = requests.post('http://18.116.118.74/api/schedule-manager', data={"stops":request.drop_off_location})
+    path = requests.get('http://18.116.118.74/api/path-manager/' + res.schedule_id).path
     await db.commit()
     await db.refresh(request)
-    return {"request_id": request.id, "truck_id": request.truck_id, "status": request.status}
+    return {"request_id": request.id, "truck_id": request.truck_id, "status": request.status, "path": path}
 
 # Update Service Request Status
 @app.put("/api/service-request/{request_id}/status", status_code=200)
