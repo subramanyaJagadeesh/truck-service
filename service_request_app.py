@@ -94,8 +94,8 @@ def assign_service_request(request_id):
     return jsonify({"request_id": request_id, "truck_id": service_request.truck_id, "status": service_request.status.value, "path": path}), 200
 
 
-@app.route("/api/service-request/<int:request_id>/status", methods=["PUT"])
-def update_request_status(request_id):
+@app.route("/api/service-request/<int:vehicle_id>/status", methods=["PUT"])
+def update_request_status(vehicle_id):
     data = request.get_json()
     if not data or "status" not in data:
         abort(400, "Invalid input data")
@@ -103,7 +103,7 @@ def update_request_status(request_id):
     if data["status"] not in [status.value for status in RequestStatus]:
         abort(400, "Invalid status")
 
-    service_request = ServiceRequest.query.get(request_id)
+    service_request = ServiceRequest.query.filter_by(truck_id = vehicle_id).all()
     if not service_request:
         abort(404, "Request not found")
 
