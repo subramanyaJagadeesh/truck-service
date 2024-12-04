@@ -1,192 +1,169 @@
-from fastapi import FastAPI, HTTPException, Depends
-from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import Column, Integer, String, JSON, Enum, DateTime
-from sqlalchemy.sql import func
-from sqlalchemy.future import select
-from fastapi.middleware.cors import CORSMiddleware
-from enum import Enum as PyEnum
-from typing import Optional, List
-import requests
+from flask import Flask, request, jsonify, abort
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy
+from enum import Enum
+from datetime import datetime
 import json
+import requests
+
+# Configuration
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}})  # Allows all origins
+
+app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql+psycopg2://postgres:GL85#Y3%$X&c5*yf^Wgt@autonomous-truck-simulator.c3s0ceae4890.us-west-1.rds.amazonaws.com:5432/postgres"
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
 
 token = '4923f238-9852-4f14-aaf9-66aa6a9282aa'
 
-# Initialize FastAPI app
-app = FastAPI()
-origins = [
-    "http://localhost:3000",  # React app URL during development
-]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows the specified origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, PUT, DELETE, etc.)
-    allow_headers=["*"],  # Allows all headers (e.g., Authorization, Content-Type)
-)
-# Database setup
-DATABASE_URL = "postgresql+asyncpg://postgres:GL85#Y3%$X&c5*yf^Wgt@autonomous-truck-simulator.c3s0ceae4890.us-west-1.rds.amazonaws.com:5432/postgres"
-engine = create_async_engine(DATABASE_URL, echo=False)
-SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
-Base = declarative_base()
 
-# Status Enum
-class RequestStatus(str, PyEnum):
+# Enums
+class RequestStatus(Enum):
     OPENED = "Opened"
     ASSIGNED = "Assigned"
     SERVED = "Served"
     COMPLETE = "Complete"
     INCOMPLETE = "Incomplete"
 
-# Database model
-class ServiceRequest(Base):
+
+# Models
+class ServiceRequest(db.Model):
     __tablename__ = "service_requests"
     
-    id = Column(Integer, primary_key=True, index=True)
-    drop_off_location = Column(String, nullable=False)
-    service_type = Column(String, nullable=False)
-    truck_id = Column(Integer, nullable=True)
-    status = Column(Enum(RequestStatus), default=RequestStatus.OPENED)
-    created_time = Column(DateTime(timezone=True), server_default=func.now())
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    drop_off_location = db.Column(db.String, nullable=False)
+    service_type = db.Column(db.String, nullable=False)
+    truck_id = db.Column(db.Integer, nullable=True)
+    status = db.Column(db.Enum(RequestStatus), default=RequestStatus.OPENED)
+    created_time = db.Column(db.DateTime, default=datetime.utcnow)
 
-class Schedule():
-    schedule_id: int
-    stops: List[str]
 
-# Pydantic models
-class ShipmentMetadata(BaseModel):
-    weight: str
-    type: str
+# Routes
 
-class ServiceRequestCreate(BaseModel):
-    drop_off_location: str
-    shipment_metadata: ShipmentMetadata
+@app.route("/api/service-request", methods=["POST"])
+def create_service_request():
+    data = request.get_json()
+    if not data or "drop_off_location" not in data or "shipment_metadata" not in data:
+        abort(400, "Invalid input data")
 
-class ServiceRequestAssign(BaseModel):
-    truck_id: int
-
-class ServiceRequestUpdate(BaseModel):
-    status: RequestStatus
-    details: Optional[dict] = None
-
-# Initialize database
-async def init_db():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-# Dependency
-async def get_db():
-    async with SessionLocal() as session:
-        yield session
-
-# Create Service Request
-@app.post("/api/service-request", status_code=201)
-async def create_service_request(request_data: ServiceRequestCreate, db: AsyncSession = Depends(get_db)):
     new_request = ServiceRequest(
-        drop_off_location=request_data.drop_off_location,
-        service_type=json.dumps(request_data.shipment_metadata.dict()),
+        drop_off_location=data["drop_off_location"],
+        service_type=json.dumps(data["shipment_metadata"]),
         status=RequestStatus.OPENED
     )
-    db.add(new_request)
-    await db.commit()
-    await db.refresh(new_request)
-    requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create', data=json.dumps({"token":token, "description": "Service Request: Created new request "+str(new_request.id)}), headers={"Content-Type":"application/json"}).json()
-    return {"request_id": new_request.id, "status": new_request.status}
-
-# Assign Service Request to Truck
-@app.put("/api/service-request/{request_id}/assign", status_code=200)
-async def assign_service_request(request_id: int, assign_data: ServiceRequestAssign, db: AsyncSession = Depends(get_db)):
-    request = await db.get(ServiceRequest, request_id)
-    if not request:
-        raise HTTPException(status_code=404, detail="Request not found")
-    if request.status != RequestStatus.OPENED:
-        raise HTTPException(status_code=400, detail="Request is not in 'opened' status")
-    request.truck_id = assign_data.truck_id
-    request.status = RequestStatus.ASSIGNED
-    res: Schedule = requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/schedule-manager/create', data=json.dumps({"stops":[request.drop_off_location], "token": token}), headers={"Content-Type":"application/json"}).json()
-    path = requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/path-manager/' + str(res['schedule_id']), data=json.dumps({"token": token}), headers={"Content-Type":"application/json"}).json()[0]['path'][0]
-    await db.commit()
-    await db.refresh(request)
-    requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create', data=json.dumps({"token":token, "description": "Service Request: Assinged truck to request "+str(request.id)}), headers={"Content-Type":"application/json"}).json()
-    return {"request_id": request.id, "truck_id": request.truck_id, "status": request.status, "path": path}
-
-# Update Service Request Status
-@app.put("/api/service-request/{request_id}/status", status_code=200)
-async def update_request_status(request_id: int, update_data: ServiceRequestUpdate, db: AsyncSession = Depends(get_db)):
-    request = await db.get(ServiceRequest, request_id)
-    if not request:
-        raise HTTPException(status_code=404, detail="Request not found")
+    db.session.add(new_request)
+    db.session.commit()
     
-    if update_data.status not in RequestStatus.__members__.values():
-        raise HTTPException(status_code=400, detail="Invalid status transition")
+    requests.post(
+        'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
+        json={"token": token, "description": f"Service Request: Created new request {new_request.id}"}
+    )
+    return jsonify({"request_id": new_request.id, "status": new_request.status.value}), 201
 
-    request.status = update_data.status
-    await db.commit()
-    await db.refresh(request)
-    return {"success": True, "message": "Request updated successfully"}
 
-# Delete Service Request
-@app.delete("/api/service-request/{request_id}", status_code=200)
-async def delete_service_request(request_id: int, db: AsyncSession = Depends(get_db)):
-    request = await db.get(ServiceRequest, request_id)
-    if not request:
-        raise HTTPException(status_code=404, detail="Request not found")
+@app.route("/api/service-request/<int:request_id>/assign", methods=["PUT"])
+def assign_service_request(request_id):
+    data = request.get_json()
+    if not data or "truck_id" not in data:
+        abort(400, "Invalid input data")
+
+    service_request = ServiceRequest.query.get(request_id)
+    if not service_request:
+        abort(404, "Request not found")
+    if service_request.status != RequestStatus.OPENED:
+        abort(400, "Request is not in 'opened' status")
+
+    service_request.truck_id = data["truck_id"]
+    service_request.status = RequestStatus.ASSIGNED
+
+    res = requests.post(
+        'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/schedule-manager/create',
+        json={"stops": [service_request.drop_off_location], "token": token}
+    ).json()
     
-    await db.delete(request)
-    await db.commit()
-    requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create', data=json.dumps({"token":token, "description": "Service Request: Deleted request "+request_id}), headers={"Content-Type":"application/json"}).json()
-    return {"success": True, "message": "Request deleted successfully"}
+    path = requests.post(
+        f"http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/path-manager/{res['schedule_id']}",
+        json={"token": token}
+    ).json()[0]['path'][0]
 
-# Get All Service Requests
-@app.get("/api/service-requests", status_code=200)
-async def get_all_requests(db: AsyncSession = Depends(get_db)):
-    async with db.begin():  # Begin a transaction scope
-        result = await db.execute(select(ServiceRequest).order_by(ServiceRequest.id.asc()))  # ORM query to get all ServiceRequest records
-        requests = result.scalars().all()  # Fetch all records as list of ServiceRequest instances
+    db.session.commit()
+    requests.post(
+        'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
+        json={"token": token, "description": f"Service Request: Assigned truck to request {request_id}"}
+    )
+    return jsonify({"request_id": request_id, "truck_id": service_request.truck_id, "status": service_request.status.value, "path": path}), 200
 
-        # If there are no requests, raise a 404 error
-        if not requests:
-            return []
 
-        # Convert ORM instances to JSON-serializable dictionaries
-        response_data = [
-            {
-                "id": request.id,
-                "status": request.status,
-                "drop_off_location": request.drop_off_location,
-                "shipment_metadata": request.service_type,
-                "truck_id": request.truck_id,
-            }
-            for request in requests
-        ]
+@app.route("/api/service-request/<int:request_id>/status", methods=["PUT"])
+def update_request_status(request_id):
+    data = request.get_json()
+    if not data or "status" not in data:
+        abort(400, "Invalid input data")
 
-        return response_data
-@app.get("/api/service-requests/metadata", status_code=200)
-async def get_metadata(db: AsyncSession = Depends(get_db)):
-    async with db.begin():
-        result = await db.execute(
-            select(
-                func.count(ServiceRequest.id).filter(ServiceRequest.status == RequestStatus.OPENED).label("open"),
-                func.count(ServiceRequest.id).filter(ServiceRequest.status == RequestStatus.ASSIGNED).label("assigned"),
-                func.count(ServiceRequest.id).filter(ServiceRequest.status == RequestStatus.COMPLETE).label("completed"),
-                func.count(ServiceRequest.id).label("total")
-            )
-        )
-    
-        status_counts = result.first()
-        if not status_counts:
-            raise HTTPException(status_code=404, detail="Service requests not found")
+    if data["status"] not in [status.value for status in RequestStatus]:
+        abort(400, "Invalid status")
 
-            # Return the counts as a dictionary
-        return {
-            "open": status_counts.open,
-            "assigned": status_counts.assigned,
-            "completed": status_counts.completed,
-            "total": status_counts.total
+    service_request = ServiceRequest.query.get(request_id)
+    if not service_request:
+        abort(404, "Request not found")
+
+    service_request.status = RequestStatus[data["status"]]
+    db.session.commit()
+    return jsonify({"success": True, "message": "Request updated successfully"}), 200
+
+
+@app.route("/api/service-request/<int:request_id>", methods=["DELETE"])
+def delete_service_request(request_id):
+    service_request = ServiceRequest.query.get(request_id)
+    if not service_request:
+        abort(404, "Request not found")
+
+    db.session.delete(service_request)
+    db.session.commit()
+    requests.post(
+        'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
+        json={"token": token, "description": f"Service Request: Deleted request {request_id}"}
+    )
+    return jsonify({"success": True, "message": "Request deleted successfully"}), 200
+
+
+@app.route("/api/service-requests", methods=["GET"])
+def get_all_requests():
+    service_requests = ServiceRequest.query.order_by(ServiceRequest.id.asc()).all()
+    response_data = [
+        {
+            "id": request.id,
+            "status": request.status.value,
+            "drop_off_location": request.drop_off_location,
+            "shipment_metadata": request.service_type,
+            "truck_id": request.truck_id,
         }
-# Run database initialization on startup
-@app.on_event("startup")
-async def startup():
-    await init_db()
+        for request in service_requests
+    ]
+    return jsonify(response_data), 200
+
+
+@app.route("/api/service-requests/metadata", methods=["GET"])
+def get_metadata():
+    open_count = ServiceRequest.query.filter_by(status=RequestStatus.OPENED).count()
+    assigned_count = ServiceRequest.query.filter_by(status=RequestStatus.ASSIGNED).count()
+    completed_count = ServiceRequest.query.filter_by(status=RequestStatus.COMPLETE).count()
+    total_count = ServiceRequest.query.count()
+
+    return jsonify({
+        "open": open_count,
+        "assigned": assigned_count,
+        "completed": completed_count,
+        "total": total_count
+    }), 200
+
+
+# Initialize database
+@app.before_request
+def initialize_database():
+    db.create_all()
+
+
+# Run the app
+if __name__ == "__main__":
+    app.run(debug=True, port=8000)
