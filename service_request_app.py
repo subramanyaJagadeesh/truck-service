@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from enum import Enum as PyEnum
 from typing import Optional, List
 import requests
+import json
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -83,7 +84,7 @@ async def get_db():
 async def create_service_request(request_data: ServiceRequestCreate, db: AsyncSession = Depends(get_db)):
     new_request = ServiceRequest(
         drop_off_location=request_data.drop_off_location,
-        shipment_metadata=request_data.shipment_metadata.dict(),
+        service_type=json.dumps(request_data.shipment_metadata.dict()),
         status=RequestStatus.OPENED
     )
     db.add(new_request)
@@ -99,11 +100,10 @@ async def assign_service_request(request_id: int, assign_data: ServiceRequestAss
         raise HTTPException(status_code=404, detail="Request not found")
     if request.status != RequestStatus.OPENED:
         raise HTTPException(status_code=400, detail="Request is not in 'opened' status")
-    
     request.truck_id = assign_data.truck_id
     request.status = RequestStatus.ASSIGNED
-    res: Schedule = requests.post('http://18.116.118.74/api/schedule-manager', data={"stops":request.drop_off_location})
-    path = requests.get('http://18.116.118.74/api/path-manager/' + res.schedule_id).path
+    res: Schedule = requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/schedule-manager', data=json.dumps({"stops":[request.drop_off_location]}), headers={"Content-Type":"application/json"}).json()
+    path = requests.get('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/path-manager/' + res['schedule_id']).json()[0]['path'][0]
     await db.commit()
     await db.refresh(request)
     return {"request_id": request.id, "truck_id": request.truck_id, "status": request.status, "path": path}
@@ -151,7 +151,7 @@ async def get_all_requests(db: AsyncSession = Depends(get_db)):
                 "id": request.id,
                 "status": request.status,
                 "drop_off_location": request.drop_off_location,
-                "shipment_metadata": request.shipment_metadata,
+                "shipment_metadata": request.service_type,
                 "truck_id": request.truck_id,
             }
             for request in requests
