@@ -12,6 +12,8 @@ from typing import Optional, List
 import requests
 import json
 
+token = '4923f238-9852-4f14-aaf9-66aa6a9282aa'
+
 # Initialize FastAPI app
 app = FastAPI()
 origins = [
@@ -90,6 +92,7 @@ async def create_service_request(request_data: ServiceRequestCreate, db: AsyncSe
     db.add(new_request)
     await db.commit()
     await db.refresh(new_request)
+    requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create', data=json.dumps({"token":token, "description": "Service Request: Created new request "+new_request.id}), headers={"Content-Type":"application/json"}).json()
     return {"request_id": new_request.id, "status": new_request.status}
 
 # Assign Service Request to Truck
@@ -102,10 +105,11 @@ async def assign_service_request(request_id: int, assign_data: ServiceRequestAss
         raise HTTPException(status_code=400, detail="Request is not in 'opened' status")
     request.truck_id = assign_data.truck_id
     request.status = RequestStatus.ASSIGNED
-    res: Schedule = requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/schedule-manager/create', data=json.dumps({"stops":[request.drop_off_location]}), headers={"Content-Type":"application/json"}).json()
-    path = requests.get('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/path-manager/' + res['schedule_id']).json()[0]['path'][0]
+    res: Schedule = requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/schedule-manager/create', data=json.dumps({"stops":[request.drop_off_location], "token": token}), headers={"Content-Type":"application/json"}).json()
+    path = requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/path-manager/' + res['schedule_id'], data=json.dumps({"token": token})).json()[0]['path'][0]
     await db.commit()
     await db.refresh(request)
+    requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create', data=json.dumps({"token":token, "description": "Service Request: Assinged truck to request "+request.id}), headers={"Content-Type":"application/json"}).json()
     return {"request_id": request.id, "truck_id": request.truck_id, "status": request.status, "path": path}
 
 # Update Service Request Status
@@ -132,6 +136,7 @@ async def delete_service_request(request_id: int, db: AsyncSession = Depends(get
     
     await db.delete(request)
     await db.commit()
+    requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create', data=json.dumps({"token":token, "description": "Service Request: Deleted request "+request_id}), headers={"Content-Type":"application/json"}).json()
     return {"success": True, "message": "Request deleted successfully"}
 
 # Get All Service Requests
