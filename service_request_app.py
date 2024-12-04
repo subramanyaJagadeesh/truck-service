@@ -8,7 +8,7 @@ import requests
 
 # Configuration
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})  # Allows all origins
+CORS(app)  # Allows all origins
 
 app.config['SQLALCHEMY_DATABASE_URI'] = "postgresql+psycopg2://postgres:GL85#Y3%$X&c5*yf^Wgt@autonomous-truck-simulator.c3s0ceae4890.us-west-1.rds.amazonaws.com:5432/postgres"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
