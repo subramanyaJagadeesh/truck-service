@@ -54,11 +54,12 @@ def create_service_request():
     db.session.add(new_request)
     db.session.commit()
     
-    requests.post(
+    alert = requests.post(
         'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
-        json={"token": token, "description": f"Service Request: Created new request {new_request.id}"}
-    )
-    return jsonify({"request_id": new_request.id, "status": new_request.status.value}), 201
+        json={"token": token, "Description": f"Service Request: Created new request {new_request.id}"}
+    ).json()
+
+    return jsonify({"request_id": new_request.id, "status": new_request.status.value, "alert": alert}), 201
 
 
 @app.route("/api/service-request/<int:request_id>/assign", methods=["PUT"])
@@ -89,7 +90,7 @@ def assign_service_request(request_id):
     db.session.commit()
     requests.post(
         'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
-        json={"token": token, "description": f"Service Request: Assigned truck to request {request_id}"}
+        json={"token": token, "Description": f"Service Request: Assigned truck to request {request_id}"}
     )
     return jsonify({"request_id": request_id, "truck_id": service_request.truck_id, "status": service_request.status.value, "path": path}), 200
 
@@ -103,12 +104,16 @@ def update_request_status(vehicle_id):
     if data["status"] not in [status.value for status in RequestStatus]:
         abort(400, "Invalid status")
 
-    service_request = ServiceRequest.query.filter_by(truck_id = vehicle_id).all()
+    service_request = ServiceRequest.query.filter_by(truck_id = vehicle_id).first()
     if not service_request:
         abort(404, "Request not found")
 
     service_request.status = RequestStatus[data["status"]]
     db.session.commit()
+    requests.post(
+        'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
+        json={"token": token, "Description": f"Service Request {service_request.id}: Status updated to {service_request.status}"}
+    )
     return jsonify({"success": True, "message": "Request updated successfully"}), 200
 
 
