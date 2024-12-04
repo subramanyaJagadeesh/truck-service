@@ -28,7 +28,7 @@ app.add_middleware(
 )
 # Database setup
 DATABASE_URL = "postgresql+asyncpg://postgres:GL85#Y3%$X&c5*yf^Wgt@autonomous-truck-simulator.c3s0ceae4890.us-west-1.rds.amazonaws.com:5432/postgres"
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 
@@ -143,7 +143,7 @@ async def delete_service_request(request_id: int, db: AsyncSession = Depends(get
 @app.get("/api/service-requests", status_code=200)
 async def get_all_requests(db: AsyncSession = Depends(get_db)):
     async with db.begin():  # Begin a transaction scope
-        result = await db.execute(select(ServiceRequest))  # ORM query to get all ServiceRequest records
+        result = await db.execute(select(ServiceRequest).order_by(ServiceRequest.id.asc()))  # ORM query to get all ServiceRequest records
         requests = result.scalars().all()  # Fetch all records as list of ServiceRequest instances
 
         # If there are no requests, raise a 404 error
