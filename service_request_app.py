@@ -102,7 +102,7 @@ async def assign_service_request(request_id: int, assign_data: ServiceRequestAss
         raise HTTPException(status_code=400, detail="Request is not in 'opened' status")
     request.truck_id = assign_data.truck_id
     request.status = RequestStatus.ASSIGNED
-    res: Schedule = requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/schedule-manager', data=json.dumps({"stops":[request.drop_off_location]}), headers={"Content-Type":"application/json"}).json()
+    res: Schedule = requests.post('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/schedule-manager/create', data=json.dumps({"stops":[request.drop_off_location]}), headers={"Content-Type":"application/json"}).json()
     path = requests.get('http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/path-manager/' + res['schedule_id']).json()[0]['path'][0]
     await db.commit()
     await db.refresh(request)
