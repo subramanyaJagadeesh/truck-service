@@ -158,6 +158,29 @@ async def get_all_requests(db: AsyncSession = Depends(get_db)):
         ]
 
         return response_data
+@app.get("/api/service-requests/metadata", status_code=200)
+async def get_metadata(db: AsyncSession = Depends(get_db)):
+    async with db.begin():
+        result = await db.execute(
+            select(
+                func.count(ServiceRequest.id).filter(ServiceRequest.status == RequestStatus.OPENED).label("open"),
+                func.count(ServiceRequest.id).filter(ServiceRequest.status == RequestStatus.ASSIGNED).label("assigned"),
+                func.count(ServiceRequest.id).filter(ServiceRequest.status == RequestStatus.COMPLETE).label("completed"),
+                func.count(ServiceRequest.id).label("total")
+            )
+        )
+    
+        status_counts = result.first()
+        if not status_counts:
+            raise HTTPException(status_code=404, detail="Service requests not found")
+
+            # Return the counts as a dictionary
+        return {
+            "open": status_counts.open,
+            "assigned": status_counts.assigned,
+            "completed": status_counts.completed,
+            "total": status_counts.total
+        }
 # Run database initialization on startup
 @app.on_event("startup")
 async def startup():
