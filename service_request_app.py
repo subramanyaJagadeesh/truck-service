@@ -101,9 +101,6 @@ def update_request_status(vehicle_id):
     if not data or "status" not in data:
         abort(400, "Invalid input data")
 
-    if data["status"] not in [status.value for status in RequestStatus]:
-        abort(400, "Invalid status")
-
     service_request = ServiceRequest.query.filter_by(truck_id = vehicle_id).first()
     if not service_request:
         abort(404, "Request not found")
@@ -171,4 +168,4 @@ def initialize_database():
 
 # Run the app
 if __name__ == "__main__":
-    app.run(debug=True, port=8000)
+    app.run(debug=True)
