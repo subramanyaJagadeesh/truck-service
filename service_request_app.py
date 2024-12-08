@@ -5,6 +5,7 @@ from enum import Enum
 from datetime import datetime
 import json
 import requests
+from sqlalchemy import update
 
 # Configuration
 app = Flask(__name__)
@@ -62,37 +63,29 @@ def create_service_request():
     return jsonify({"request_id": new_request.id, "status": new_request.status.value, "alert": alert}), 201
 
 
-@app.route("/api/service-request/<int:request_id>/assign", methods=["PUT"])
-def assign_service_request(request_id):
+@app.route("/api/service-request/assign", methods=["PUT"])
+def assign_service_request():
     data = request.get_json()
-    if not data or "truck_id" not in data:
+    if not data or "ids" not in data:
         abort(400, "Invalid input data")
 
-    service_request = ServiceRequest.query.get(request_id)
-    if not service_request:
+    service_requests = data["ids"]
+    if not service_requests:
         abort(404, "Request not found")
-    if service_request.status != RequestStatus.OPENED:
-        abort(400, "Request is not in 'opened' status")
-
-    service_request.truck_id = data["truck_id"]
-    service_request.status = RequestStatus.ASSIGNED
-
-    res = requests.post(
-        'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/schedule-manager/create',
-        json={"stops": [service_request.drop_off_location], "token": token}
-    ).json()
-    
-    path = requests.post(
-        f"http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/path-manager/{res['schedule_id']}",
-        json={"token": token}
-    ).json()[0]['path'][0]
-
-    db.session.commit()
-    requests.post(
-        'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
-        json={"token": token, "Description": f"Service Request: Assigned truck to request {request_id}"}
+    stmt = (
+        update(ServiceRequest)
+        .where(ServiceRequest.id.in_(service_requests))  # Match IDs in the list
+        .values(status=RequestStatus.ASSIGNED)  # Set the new status
     )
-    return jsonify({"request_id": request_id, "truck_id": service_request.truck_id, "status": service_request.status.value, "path": path}), 200
+
+    db.session.execute(stmt)
+    db.session.commit()
+    for s_id in service_requests:
+        requests.post(
+            'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
+            json={"token": token, "Description": f"Service Request {s_id}: Assigned to a schedule"}
+        )
+    return "Succesfully assigned service requests" , 200
 
 
 @app.route("/api/service-request/<int:vehicle_id>/status", methods=["PUT"])
