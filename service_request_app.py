@@ -117,7 +117,7 @@ def delete_service_request(request_id):
     db.session.commit()
     requests.post(
         'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
-        json={"token": token, "description": f"Service Request: Deleted request {request_id}"}
+        json={"token": token, "Description": f"Service Request: Deleted request {request_id}"}
     )
     return jsonify({"success": True, "message": "Request deleted successfully"}), 200
 
