@@ -63,19 +63,20 @@ def create_service_request():
     return jsonify({"request_id": new_request.id, "status": new_request.status.value, "alert": alert}), 201
 
 
-@app.route("/api/service-request/assign", methods=["PUT"])
+@app.route("/api/service-request/status", methods=["PUT"])
 def assign_service_request():
     data = request.get_json()
-    if not data or "ids" not in data:
+    if not data or "ids" not in data or "status" not in data:
         abort(400, "Invalid input data")
 
     service_requests = data["ids"]
+    status = data["status"]
     if not service_requests:
-        abort(404, "Request not found")
+        abort(404, "Requests not found")
     stmt = (
         update(ServiceRequest)
         .where(ServiceRequest.id.in_(service_requests))  # Match IDs in the list
-        .values(status=RequestStatus.ASSIGNED)  # Set the new status
+        .values(status=RequestStatus(status))  # Set the new status
     )
 
     db.session.execute(stmt)
@@ -86,25 +87,6 @@ def assign_service_request():
             json={"token": token, "Description": f"Service Request {s_id}: Assigned to a schedule"}
         )
     return "Succesfully assigned service requests" , 200
-
-
-@app.route("/api/service-request/<int:vehicle_id>/status", methods=["PUT"])
-def update_request_status(vehicle_id):
-    data = request.get_json()
-    if not data or "status" not in data:
-        abort(400, "Invalid input data")
-
-    service_request = ServiceRequest.query.filter_by(truck_id = vehicle_id).first()
-    if not service_request:
-        abort(404, "Request not found")
-
-    service_request.status = RequestStatus[data["status"]]
-    db.session.commit()
-    requests.post(
-        'http://cmpe281-2007092816.us-east-2.elb.amazonaws.com/api/alerts/create',
-        json={"token": token, "Description": f"Service Request {service_request.id}: Status updated to {service_request.status}"}
-    )
-    return jsonify({"success": True, "message": "Request updated successfully"}), 200
 
 
 @app.route("/api/service-request/<int:request_id>", methods=["DELETE"])
